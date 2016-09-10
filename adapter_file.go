@@ -20,14 +20,14 @@ const (
 // fileWriter implements LoggerInterface.
 // It writes messages by lines limit, file size limit, or time frequency.
 type fileWriter struct {
-	sync.RWMutex // write log order by order and  atomic incr maxLinesCurLines and maxSizeCurSize
+	sync.RWMutex // write log order by order and  atomic incr maxLineCurLine and maxSizeCurSize
 	// The opened file
 	Filename string `json:"filename"`
 	file     *os.File
 
 	// Rotate at line
-	MaxLines         int `json:"maxline"`
-	maxLinesCurLines int
+	MaxLine        int `json:"maxline"`
+	maxLineCurLine int
 
 	// Rotate at size
 	MaxSize        int `json:"maxsize"`
@@ -35,7 +35,7 @@ type fileWriter struct {
 
 	// Rotate daily
 	Daily         bool  `json:"daily"`
-	MaxDays       int64 `json:"maxday"`
+	MaxDay        int64 `json:"maxday"`
 	dailyOpenDate int
 	dailyOpenTime time.Time
 
@@ -49,7 +49,7 @@ func newAdapterFile() Storer {
 	w := &fileWriter{
 		Filename: "app.log",
 		Daily:    true,
-		MaxDays:  30,
+		MaxDay:   30,
 		Perm:     "0644",
 	}
 	return w
@@ -59,10 +59,10 @@ func newAdapterFile() Storer {
 // jsonConfig like:
 //	{
 //	"filename":"logs/app.log",
-//	"maxLines":10000,
+//	"maxline":10000,
 //	"maxsize":1024,
 //	"daily":true,
-//	"maxDays":15,
+//	"maxday":15,
 //  "perm":"0600"
 //	}
 func (w *fileWriter) Init(jsonConfig string) error {
@@ -95,7 +95,7 @@ func (w *fileWriter) startLogger() error {
 }
 
 func (w *fileWriter) needRotate(day int) bool {
-	return (w.MaxLines > 0 && w.maxLinesCurLines >= w.MaxLines) ||
+	return (w.MaxLine > 0 && w.maxLineCurLine >= w.MaxLine) ||
 		(w.MaxSize > 0 && w.maxSizeCurSize >= w.MaxSize) ||
 		(w.Daily && day != w.dailyOpenDate)
 
@@ -123,7 +123,7 @@ func (w *fileWriter) WriteMsg(when time.Time, msg string, level int) error {
 	w.Lock()
 	_, err := w.file.Write([]byte(msg))
 	if err == nil {
-		w.maxLinesCurLines++
+		w.maxLineCurLine++
 		w.maxSizeCurSize += len(msg)
 	}
 	w.Unlock()
@@ -154,7 +154,7 @@ func (w *fileWriter) initFd() error {
 	w.maxSizeCurSize = int(fInfo.Size())
 	w.dailyOpenTime = time.Now()
 	w.dailyOpenDate = w.dailyOpenTime.Day()
-	w.maxLinesCurLines = 0
+	w.maxLineCurLine = 0
 	if w.Daily {
 		go w.dailyRotate(w.dailyOpenTime)
 	}
@@ -163,7 +163,7 @@ func (w *fileWriter) initFd() error {
 		if err != nil {
 			return err
 		}
-		w.maxLinesCurLines = count
+		w.maxLineCurLine = count
 	}
 	return nil
 }
@@ -260,7 +260,7 @@ func (w *fileWriter) getNewFilname(when time.Time) string {
 	fName := ""
 	var err error
 
-	if w.MaxLines > 0 || w.MaxSize > 0 {
+	if w.MaxLine > 0 || w.MaxSize > 0 {
 		for ; err == nil; num++ {
 			fName = w.filePrefix + fmt.Sprintf(".%s.%03d%s", when.Format("2006-01-02"), num, w.fileExt)
 			_, err = os.Lstat(fName)
@@ -278,7 +278,7 @@ func (w *fileWriter) getNewFilname(when time.Time) string {
 }
 
 func (w *fileWriter) deleteOldLog() {
-	if w.MaxDays <= 0 {
+	if w.MaxDay <= 0 {
 		return
 	}
 
@@ -295,7 +295,7 @@ func (w *fileWriter) deleteOldLog() {
 			return
 		}
 
-		if !info.IsDir() && info.ModTime().Add(24*time.Hour*time.Duration(w.MaxDays)).Before(now) {
+		if !info.IsDir() && info.ModTime().Add(24*time.Hour*time.Duration(w.MaxDay)).Before(now) {
 			if strings.HasPrefix(filepath.Base(path), filepath.Base(w.filePrefix)) &&
 				strings.HasSuffix(filepath.Base(path), w.fileExt) {
 				os.Remove(path)
