@@ -36,10 +36,8 @@ type fileWriter struct {
 	rotate bool
 
 	// Rotate daily
-	Daily         bool  `json:"daily"`
-	MaxDay        int64 `json:"maxday"`
-	dailyOpenDate int
-	dailyOpenTime time.Time
+	Daily  bool  `json:"daily"`
+	MaxDay int64 `json:"maxday"`
 
 	Perm string `json:"perm"`
 
@@ -81,12 +79,12 @@ func (w *fileWriter) Init(jsonConfig string) error {
 
 	w.rotate = w.MaxLine > 0 || w.MaxSize > 0
 
-	err = w.startLogger()
+	err = w.startLogger(true)
 	return err
 }
 
 // start file logger. create log file and set to locker-inside file writer.
-func (w *fileWriter) startLogger() error {
+func (w *fileWriter) startLogger(needAdjust bool) error {
 	file, err := w.createLogFile()
 	if err != nil {
 		return err
@@ -95,16 +93,12 @@ func (w *fileWriter) startLogger() error {
 		w.file.Close()
 	}
 	w.file = file
-	return w.initFd()
+	return w.initFd(needAdjust)
 }
 
 func (w *fileWriter) needRotateByMax() bool {
 	return (w.MaxLine > 0 && w.maxLineCurLine >= w.MaxLine) ||
 		(w.MaxSize > 0 && w.maxSizeCurSize >= w.MaxSize)
-}
-
-func (w *fileWriter) needRotateByDay(day int) bool {
-	return day != w.dailyOpenDate
 }
 
 // WriteMsg write logger message into file.
@@ -151,18 +145,16 @@ func (w *fileWriter) createLogFile() (*os.File, error) {
 	return fd, err
 }
 
-func (w *fileWriter) initFd() error {
+func (w *fileWriter) initFd(needAdjust bool) error {
 	fd := w.file
 	fInfo, err := fd.Stat()
 	if err != nil {
 		return fmt.Errorf("get stat err: %s\n", err)
 	}
 	w.maxSizeCurSize = int(fInfo.Size())
-	w.dailyOpenTime = time.Now()
-	w.dailyOpenDate = w.dailyOpenTime.Day()
 	w.maxLineCurLine = 0
-	if w.Daily {
-		go w.dailyRotate(w.dailyOpenTime)
+	if w.Daily && needAdjust {
+		go w.dailyRotate()
 	}
 	if w.maxSizeCurSize > 0 {
 		count, err := w.lines()
@@ -175,18 +167,17 @@ func (w *fileWriter) initFd() error {
 }
 
 // rotate at 00:00
-func (w *fileWriter) dailyRotate(openTime time.Time) {
+func (w *fileWriter) dailyRotate() {
+	openTime := time.Now()
 	y, m, d := openTime.Add(24 * time.Hour).Date()
 	nextDay := time.Date(y, m, d, 0, 0, 0, 0, openTime.Location())
-	tm := time.NewTimer(time.Duration(nextDay.UnixNano() - openTime.UnixNano() + 100))
+
+	tm := time.NewTimer(time.Duration(nextDay.UnixNano() - openTime.UnixNano() + 1000))
 	select {
 	case <-tm.C:
 		w.Lock()
-		now := time.Now()
-		if w.needRotateByDay(now.Day()) {
-			if err := w.doRotate(now, true); err != nil {
-				fmt.Fprintf(os.Stderr, "FileWriter(%q): %s\n", w.Filename, err)
-			}
+		if err := w.doRotate(time.Now(), true); err != nil {
+			fmt.Fprintf(os.Stderr, "FileWriter(%q): %s\n", w.Filename, err)
 		}
 		w.Unlock()
 	}
@@ -249,7 +240,8 @@ func (w *fileWriter) doRotate(when time.Time, needAdjust bool) error {
 	}
 
 RESTART_LOGGER:
-	startLoggerErr := w.startLogger()
+	// 只有Daily切分时才需要重置计时器
+	startLoggerErr := w.startLogger(needAdjust)
 	if startLoggerErr != nil {
 		return fmt.Errorf("Rotate StartLogger: %s\n", startLoggerErr)
 	}
@@ -277,10 +269,11 @@ func (w *fileWriter) getNewFilname(when time.Time, needAdjust bool) string {
 			_, err = os.Lstat(fName)
 		}
 	} else {
-		fName = w.filePrefix + fmt.Sprintf(".%s%s", w.dailyOpenTime.Format("2006-01-02"), w.fileExt)
+		when = when.Add(-1 * time.Second)
+		fName = w.filePrefix + fmt.Sprintf(".%s%s", when.Format("2006-01-02"), w.fileExt)
 		_, err = os.Lstat(fName)
 		for ; err == nil; num++ {
-			fName = w.filePrefix + fmt.Sprintf(".%s.%03d%s", w.dailyOpenTime.Format("2006-01-02"), num, w.fileExt)
+			fName = w.filePrefix + fmt.Sprintf(".%s.%03d%s", when.Format("2006-01-02"), num, w.fileExt)
 			_, err = os.Lstat(fName)
 		}
 	}
