@@ -123,5 +123,5 @@ func (w *multifileWriter) Flush() {
 }
 
 func newAdapterMultifile() Storer {
-	return &multifileWriter{IsFull: true}
+	return &multifileWriter{IsFull: false}
 }
