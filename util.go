@@ -1,6 +1,9 @@
 package logx
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 var (
 	timeLayout = "2006-01-02 15:04:05"
@@ -28,6 +31,6 @@ func GetLevelByName(name string) int {
 	if ok {
 		return v
 	} else {
-		return -1
+		panic(fmt.Sprintf("unknown Level(%s)", v))
 	}
 }

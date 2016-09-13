@@ -46,9 +46,6 @@ func (w *multifileWriter) Init(jsonConfig string) error {
 	levelIndex = map[int]int{}
 	for i, v := range w.Separate {
 		level := GetLevelByName(v)
-		if level == -1 {
-			panic(fmt.Sprintf("unknown Level(%s)", v))
-		}
 
 		_, ok := levelIndex[level]
 		if ok {
