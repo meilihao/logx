@@ -33,6 +33,8 @@ type fileWriter struct {
 	MaxSize        int `json:"maxsize"`
 	maxSizeCurSize int
 
+	rotate bool
+
 	// Rotate daily
 	Daily         bool  `json:"daily"`
 	MaxDay        int64 `json:"maxday"`
@@ -77,6 +79,8 @@ func (w *fileWriter) Init(jsonConfig string) error {
 		w.fileExt = ".log"
 	}
 
+	w.rotate = w.MaxLine > 0 || w.MaxSize > 0
+
 	err = w.startLogger()
 	return err
 }
@@ -94,26 +98,28 @@ func (w *fileWriter) startLogger() error {
 	return w.initFd()
 }
 
-func (w *fileWriter) needRotate(day int) bool {
+func (w *fileWriter) needRotateByMax() bool {
 	return (w.MaxLine > 0 && w.maxLineCurLine >= w.MaxLine) ||
-		(w.MaxSize > 0 && w.maxSizeCurSize >= w.MaxSize) ||
-		(w.Daily && day != w.dailyOpenDate)
+		(w.MaxSize > 0 && w.maxSizeCurSize >= w.MaxSize)
+}
 
+func (w *fileWriter) needRotateByDay(day int) bool {
+	return day != w.dailyOpenDate
 }
 
 // WriteMsg write logger message into file.
 func (w *fileWriter) WriteMsg(when time.Time, msg string, level int) error {
 	msg = when.Format(timeLayout) + " " + msg + "\n"
-	if w.Daily {
-		w.RLock()
-		if w.needRotate(when.Day()) {
-			w.RUnlock()
-			w.Lock()
 
-			if err := w.doRotate(when); err != nil {
+	if w.rotate {
+		w.RLock()
+		if w.needRotateByMax() {
+			w.RUnlock()
+
+			w.Lock()
+			if err := w.doRotate(when, false); err != nil {
 				fmt.Fprintf(os.Stderr, "FileWriter(%q): %s\n", w.Filename, err)
 			}
-
 			w.Unlock()
 		} else {
 			w.RUnlock()
@@ -177,8 +183,8 @@ func (w *fileWriter) dailyRotate(openTime time.Time) {
 	case <-tm.C:
 		w.Lock()
 		now := time.Now()
-		if w.needRotate(now.Day()) {
-			if err := w.doRotate(now); err != nil {
+		if w.needRotateByDay(now.Day()) {
+			if err := w.doRotate(now, true); err != nil {
 				fmt.Fprintf(os.Stderr, "FileWriter(%q): %s\n", w.Filename, err)
 			}
 		}
@@ -215,7 +221,7 @@ func (w *fileWriter) lines() (int, error) {
 
 // DoRotate means it need to write file in new file.
 // new file name like xx.2016-01-02.log (daily) or xx.2016-01-02.001.log (by line or size)
-func (w *fileWriter) doRotate(when time.Time) error {
+func (w *fileWriter) doRotate(when time.Time, needAdjust bool) error {
 	newFilename := ""
 
 	// file exists
@@ -225,7 +231,7 @@ func (w *fileWriter) doRotate(when time.Time) error {
 		goto RESTART_LOGGER
 	}
 
-	newFilename = w.getNewFilname(when)
+	newFilename = w.getNewFilname(when, needAdjust)
 	// return error if the last file checked still existed
 	if newFilename == "" {
 		return fmt.Errorf("Rotate: Cannot find free log number to rename %s\n", w.Filename)
@@ -255,12 +261,17 @@ RESTART_LOGGER:
 }
 
 // Find the next available number
-func (w *fileWriter) getNewFilname(when time.Time) string {
+func (w *fileWriter) getNewFilname(when time.Time, needAdjust bool) string {
 	num := 1
 	fName := ""
 	var err error
 
-	if w.MaxLine > 0 || w.MaxSize > 0 {
+	if w.rotate && needAdjust {
+		// 同时开启w.rotate和w.Daily时,零点切分时间when是未来时间,因此需要调整
+		when = when.Add(-1 * time.Second)
+	}
+
+	if w.rotate {
 		for ; err == nil; num++ {
 			fName = w.filePrefix + fmt.Sprintf(".%s.%03d%s", when.Format("2006-01-02"), num, w.fileExt)
 			_, err = os.Lstat(fName)
