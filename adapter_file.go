@@ -71,11 +71,7 @@ func (w *fileWriter) Init(jsonConfig string) error {
 		return err
 	}
 
-	w.fileExt = filepath.Ext(w.Filename)
-	w.filePrefix = strings.TrimSuffix(w.Filename, w.fileExt)
-	if w.fileExt == "" {
-		w.fileExt = ".log"
-	}
+	w.fileExt, w.filePrefix = splitFilename(w.Filename)
 
 	w.rotate = w.MaxLine > 0 || w.MaxSize > 0
 

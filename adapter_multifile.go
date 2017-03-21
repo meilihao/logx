@@ -32,7 +32,7 @@ var levelIndex map[int]int
 //	"maxsize":0,
 //	"daily":true,
 //	"maxday":30,
-//  "perm":0600,
+//  "perm":"0600",
 //	"full":false,
 //	"separate":["debug","info","warn","error","panic","fatal"],
 //	}
@@ -59,26 +59,37 @@ func (w *multifileWriter) Init(jsonConfig string) error {
 		panic(fmt.Sprint("empty Separate Level"))
 	}
 
-	writer := newAdapterFile().(*fileWriter)
-	err = writer.Init(jsonConfig)
-	if err != nil {
-		return err
-	}
-	w.fullWriter = writer
-
 	jsonMap := map[string]interface{}{}
 	json.Unmarshal([]byte(jsonConfig), &jsonMap)
 
+	defaultFilename := ""
+	if v, ok := jsonMap["filename"]; ok {
+		defaultFilename = v.(string)
+	} else {
+		defaultFilename = "app.log"
+	}
+	filePrefix, fileExt := splitFilename(defaultFilename)
+
 	for _, v := range w.Separate {
-		jsonMap["filename"] = w.fullWriter.filePrefix + "." + v + w.fullWriter.fileExt
+		jsonMap["filename"] = filePrefix + "." + v + fileExt
 		bs, _ := json.Marshal(jsonMap)
 		writer := newAdapterFile().(*fileWriter)
-		writer.Init(string(bs))
+		err = writer.Init(string(bs))
+		if err != nil {
+			return err
+		}
 		w.writers = append(w.writers, writer)
 	}
 
-	if !w.IsFull {
-		w.fullWriter = nil
+	if w.IsFull {
+		jsonMap["filename"] = filePrefix + fileExt
+		bs, _ := json.Marshal(jsonMap)
+		writer := newAdapterFile().(*fileWriter)
+		err = writer.Init(string(bs))
+		if err != nil {
+			return err
+		}
+		w.fullWriter = writer
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package logx
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -33,4 +34,14 @@ func GetLevelByName(name string) int {
 	} else {
 		panic(fmt.Sprintf("unknown Level(%s)", v))
 	}
+}
+
+func splitFilename(s string) (fileName, fileExt string) {
+	fileExt = filepath.Ext(s)
+	fileName = strings.TrimSuffix(s, fileExt)
+	if fileExt == "" {
+		fileExt = ".log"
+	}
+
+	return
 }
